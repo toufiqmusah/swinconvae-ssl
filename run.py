@@ -32,7 +32,7 @@ num_workers = 4
 in_channels = 1
 out_channels = 1
 weight_decay = 1e-4
-root_dir = "dataset"
+root_dir = args.dataset
 
 
 base_transforms = tio.Compose([
