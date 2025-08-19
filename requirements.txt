@@ -1,0 +1,3 @@
+monai
+torchio
+git+https://github.com/MIC-DKFZ/MedNeXt.git#egg=mednext
