@@ -118,7 +118,7 @@ class SSLPretextDataset(tio.data.SubjectsDataset):
         self,
         root_dir: str,
         base_transform: tio.Transform | None = None,
-        image_glob_pattern: str = "**/*t2f*.nii.gz",
+        image_glob_pattern: str = "**t2f.nii.gz",
         mask_transform: tio.Transform | None = None,
         build_subjects_fn=None,
     ):
