@@ -129,7 +129,7 @@ class SSLPretextDataset(tio.data.SubjectsDataset):
         if build_subjects_fn is not None:
             subjects = build_subjects_fn(root_dir)
         else:
-            img_paths = sorted(glob(os.path.join(root_dir, image_glob_pattern), recursive=True))
+            img_paths = sorted(glob(os.path.join(root_dir, "**", "*t2f*.nii.gz"), recursive=True))
             subjects = [tio.Subject(mri=tio.ScalarImage(p)) for p in img_paths]
 
         self._source_subjects = subjects
