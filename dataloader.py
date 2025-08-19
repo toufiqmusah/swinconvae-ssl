@@ -139,44 +139,22 @@ class SSLPretextDataset(tio.data.SubjectsDataset):
         return len(self._source_subjects)
 
     def __getitem__(self, index: int):
-        subj_clean = copy.deepcopy(self._source_subjects[index])
-        subj_masked = copy.deepcopy(self._source_subjects[index])
+        # A single subject instance is loaded from the list.
+        # This is a lightweight object that just holds metadata (e.g., file paths).
+        subject = self._source_subjects[index]
 
+        # The base transform (which includes loading from disk) is applied once.
         if self.base_transform is not None:
-            subj_clean = self.base_transform(subj_clean)
-            subj_masked = self.base_transform(subj_masked)
+            subj_clean = self.base_transform(subject)
+        else:
+            # If no transform, ensure data is loaded into the subject.
+            subj_clean = subject.load()
 
+        # The transformed subject (with data now in memory) is copied for masking.
+        subj_masked = copy.deepcopy(subj_clean)
         if self.mask_transform is not None:
             subj_masked = self.mask_transform(subj_masked)
 
         clean = subj_clean["mri"][tio.DATA]   # (C, I, J, K)
         masked = subj_masked["mri"][tio.DATA] # (C, I, J, K)
         return {"clean": clean, "masked": masked}
-
-
-
-'''
-base_transforms = tio.Compose([
-    tio.RescaleIntensity(out_min_max=(0, 99.5), include=['mri']),
-    tio.Resample((2.5, 2.5, 2.5), include=['mri']),
-    tio.CropOrPad((96, 96, 64), include=['mri']),
-])
-
-mask_transform = RandomPatchZeroOut(
-    patch_size=18,
-    mask_ratio=0.75,
-    include=['mri'],
-    zero_value=0.0,
-)
-
-dataset = SSLPretextDataset(
-    root_dir="dataset",
-    base_transform=base_transforms,
-    mask_transform=mask_transform,
-)
-
-loader = SubjectsLoader(dataset, batch_size=2, shuffle=True, num_workers=2)
-
-batch = next(iter(loader))
-print(batch['clean'].shape, batch['masked'].shape)
-'''

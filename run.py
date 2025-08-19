@@ -1,6 +1,7 @@
 """run.py"""
 
 import math
+import argparse
 
 import torch
 from torch import nn
@@ -12,15 +13,20 @@ from model import SwinConvAE
 from monai.losses import SSIMLoss
 from dataloader import RandomPatchZeroOut, SSLPretextDataset
 
+def parse_args():
+    args = argparse.ArgumentParser(description="SwinConvAE Training")
+    args.add_argument("--epochs", type=int, default=100)
+    args.add_argument("--batch_size", type=int, default=4)
+    args.add_argument("--dataset", type=str, default="dataset")
+    return args.parse_args()
 
+args = parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = SwinConvAE(in_channels=1, out_channels=1, use_skip_connections=False).to(device)
 
 amp = True 
 lr = 3e-4
-epochs = 25
-batch_size = 4
 grad_clip = 1.0
 num_workers = 4  
 in_channels = 1
@@ -52,24 +58,21 @@ val_len = max(1, int(0.1 * len(full_ds)))
 train_len = len(full_ds) - val_len
 train_ds, val_ds = random_split(full_ds, [train_len, val_len])
 
-train_loader = tio.data.SubjectsLoader(train_ds, batch_size=2, shuffle=True, num_workers=num_workers)
-val_loader   = tio.data.SubjectsLoader(val_ds,   batch_size=2, shuffle=False, num_workers=num_workers)
+train_loader = tio.data.SubjectsLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=num_workers)
+val_loader   = tio.data.SubjectsLoader(val_ds,   batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
 criterion_mse = nn.MSELoss()
-optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay) # Removed commented criterion_ssim
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
 def psnr(mse_val: float, data_range: float = 1.0):
     if mse_val <= 1e-12:
         return 99.0
     return 10.0 * math.log10((data_range ** 2) / mse_val)
 
-# The `train` function is defined below.
-def train(model, train_loader, val_loader, optimizer, criterion_mse, epoch):
+def run_one_epoch(model, train_loader, val_loader, optimizer, criterion_mse, epoch, best_val):
     model.train()
     running_loss = 0.0
-
-    best_val = float("inf")
     save_path = "SwinConvAE_SSL.pt"
 
     scaler = torch.cuda.amp.GradScaler(enabled=amp)
@@ -114,7 +117,7 @@ def train(model, train_loader, val_loader, optimizer, criterion_mse, epoch):
     train_psnr = psnr(train_epoch_loss, data_range=99.5) # Adjusted data_range
     val_psnr   = psnr(val_epoch_loss, data_range=99.5)   # Adjusted data_range
 
-    print(f"[{epoch:03d}/{epochs}] "
+    print(f"[{epoch:03d}/{args.epochs}] "
           f"train MSE: {train_epoch_loss:.6f} (PSNR {train_psnr:.2f} dB) | "
           f"val MSE: {val_epoch_loss:.6f} (PSNR {val_psnr:.2f} dB) | "
           f"lr: {scheduler.get_last_lr()[0]:.2e}")
@@ -135,6 +138,7 @@ def train(model, train_loader, val_loader, optimizer, criterion_mse, epoch):
         plt.axis('off')
         
         plt.savefig(f"epoch_{epoch:03d}_recon.png")
+        plt.close()
 
     if val_epoch_loss < best_val:
         best_val = val_epoch_loss
@@ -144,18 +148,20 @@ def train(model, train_loader, val_loader, optimizer, criterion_mse, epoch):
             "optimizer_state": optimizer.state_dict(),
             "scheduler_state": scheduler.state_dict(),
             "val_mse": best_val,
-            "config": { # Updated config to match current run parameters
+            "config": { 
                 "in_channels": in_channels,
                 "out_channels": out_channels,
-                "use_skip_connections": model.use_skip_connections, # Reflect actual model setting
-                "mask_ratio": mask_transform.mask_ratio, # Reflect actual transform setting
-                "patch_size": mask_transform.patch_size[0], # Reflect actual transform setting (assuming square patch)
+                "use_skip_connections": model.use_skip_connections, 
+                "mask_ratio": mask_transform.mask_ratio, 
+                "patch_size": mask_transform.patch_size[0], 
             }
         }, save_path)
         print(f"✔ Saved new best to {save_path} (val MSE {best_val:.6f})")
-
-    print("Done.")
+    
+    return best_val
 
 if __name__ == "__main__":
-    for epoch in range(1, epochs + 1):
-        train(model, train_loader, val_loader, optimizer, criterion_mse, epoch)
+    best_val_loss = float("inf")
+    for epoch in range(1, args.epochs + 1):
+        best_val_loss = run_one_epoch(model, train_loader, val_loader, optimizer, criterion_mse, epoch, best_val_loss)
+    print("Training finished.")
